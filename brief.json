@@ -1,0 +1,34 @@
+{
+  "topic": "OCCT 8.0 BRepGraph：新一代拓扑-几何图模型入门",
+  "audience": {
+    "level": "intermediate",
+    "role": "CAD 开发者 / 几何建模工程师",
+    "prior_knowledge": "了解 TopoDS/BRep 基本概念，有 OCCT C++ 使用经验",
+    "target_outcome": "理解 BRepGraph 的设计动机、核心架构、API 用法，能在新项目中评估和采用 BRepGraph"
+  },
+  "language": "zh-CN",
+  "user_materials": {
+    "urls": ["https://github.com/Open-Cascade-SAS/OCCT/discussions/1170"],
+    "files": [
+      "/Volumes/DPC/work/cad/OCCT/src/ModelingAlgorithms/TKBO/"
+    ],
+    "sufficiency_tier": "rich"
+  },
+  "scope": {
+    "desired_length": "complete tutorial",
+    "chapter_count": 5,
+    "must_include": [
+      "TopoDS 现有模型的局限性",
+      "BRepGraph 五大创新",
+      "实体模型与三级身份",
+      "Build 管线与 API 视图",
+      "算法套件与性能基准"
+    ]
+  },
+  "visuals": {
+    "one_visual_per_chapter": true,
+    "preferred_types": ["architecture", "comparison", "flow", "layer"],
+    "style_notes": "使用 gpt-image-2 technical-diagrams 风格，暗色工程感"
+  },
+  "outputs": ["markdown", "html"]
+}

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OCCT 8.0 BRepGraph：新一代拓扑-几何图模型入门</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#fafbfc;--ink:#1a1a2e;--muted:#5a5a7a;--accent:#2563eb;--accent-bg:rgba(37,99,235,0.06);--border:rgba(26,26,46,0.10);--code-bg:#f1f5f9;--font-serif:'Noto Serif SC',serif;--font-sans:'Noto Sans SC',sans-serif;--font-mono:'JetBrains Mono',monospace}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--ink);line-height:1.8;font-size:16px}
+.report-shell{max-width:860px;margin:0 auto;padding:4rem 2rem 6rem}
+h1{font-family:var(--font-serif);font-size:2rem;font-weight:700;line-height:1.3;margin-bottom:.75rem;letter-spacing:-.02em}
+h2{font-family:var(--font-serif);font-size:1.5rem;font-weight:600;margin:3rem 0 1rem;padding-top:2rem;border-top:1px solid var(--border);letter-spacing:-.01em}
+h3{font-size:1.1rem;font-weight:600;margin:2rem 0 .75rem;color:var(--ink)}
+p{margin-bottom:1rem}
+blockquote{border-left:3px solid var(--accent);padding:.75rem 1.25rem;margin:1.5rem 0;background:var(--accent-bg);border-radius:0 6px 6px 0;font-size:.95rem;color:var(--muted)}
+blockquote strong{color:var(--ink)}
+code{font-family:var(--font-mono);font-size:.875rem;background:var(--code-bg);padding:.15rem .4rem;border-radius:4px}
+pre{background:#0f172a;color:#e2e8f0;padding:1.25rem 1.5rem;border-radius:8px;overflow-x:auto;margin:1.5rem 0;line-height:1.6}
+pre code{background:none;padding:0;color:inherit;font-size:.8125rem}
+table{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:.9rem}
+th{background:var(--accent-bg);text-align:left;padding:.6rem .75rem;font-weight:600;border-bottom:2px solid var(--accent);font-size:.8rem;letter-spacing:.02em;text-transform:uppercase;color:var(--accent)}
+td{padding:.5rem .75rem;border-bottom:1px solid var(--border);vertical-align:top}
+tr:hover td{background:rgba(37,99,235,0.03)}
+img{max-width:100%;border-radius:8px;margin:1.5rem 0;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+.subtitle{font-size:1.1rem;color:var(--muted);margin-bottom:2rem;line-height:1.6}
+.meta{font-family:var(--font-mono);font-size:.75rem;color:var(--muted);letter-spacing:.06em;margin-bottom:3rem}
+hr{border:none;border-top:1px solid var(--border);margin:3rem 0}
+ol,ul{margin-bottom:1rem;padding-left:1.75rem}
+li{margin-bottom:.4rem}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.callout{background:linear-gradient(135deg,rgba(37,99,235,0.04),rgba(37,99,235,0.08));border:1px solid rgba(37,99,235,0.15);border-radius:8px;padding:1rem 1.25rem;margin:1.5rem 0;font-size:.9rem}
+</style>
+</head>
+<body>
+<div class="report-shell">
+
+<h1>OCCT 8.0 BRepGraph：新一代拓扑-几何图模型入门</h1>
+<p class="subtitle">当你的 CAD 算法花 80% 时间在遍历拓扑、构建邻接表，只有 20% 时间在做真正的几何计算——是时候换一种数据结构了。</p>
+<p class="meta">5 章 · 约 6000 字 · 配图 5 张</p>
+
+<div class="callout">
+<strong>这篇教程能给你什么</strong><br>
+1. 理解 BRepGraph 解决了 TopoDS/BRep 模型的哪些结构性瓶颈<br>
+2. 掌握 BRepGraph 的实体模型、三级身份体系和 CoEdge 半边设计<br>
+3. 用 BRepGraph API 完成邻接查询、几何访问和突变操作<br>
+4. 评估在你的项目中采用 BRepGraph 的时机和策略
+</div>
+
+<p><strong>前置知识</strong>：你应该了解 TopoDS_Shape 层次结构（Solid→Shell→Face→Wire→Edge→Vertex）和 BRep_Tool 的基本用法。</p>
+
+<hr>
+
+<h2>第1章 TopoDS 的结构性瓶颈</h2>
+
+<h3>1.1 一个真实场景：查找共享边</h3>
+<p>假设你正在写一个形状分析算法，需要找出两个面之间的共享边。在当前的 TopoDS 模型中，你需要这样做：</p>
+
+<pre><code>TopTools_IndexedDataMapOfShapeListOfShape aEdgeFaceMap;
+TopExp::MapShapesAndAncestors(aShape, TopAbs_EDGE, TopAbs_FACE, aEdgeFaceMap);
+// 遍历整个 Map，找到同时属于 FaceA 和 FaceB 的边</code></pre>
+
+<p>这段代码的问题不在于写法——而在于 <strong>每次查询都要遍历整棵拓扑树来构建 Map，复杂度 O(N)</strong>。</p>
+
+<img src="visuals/ch1-topos-vs-brepgraph.png" alt="第1章配图：TopoDS vs BRepGraph 查询路径对比">
+
+<h3>1.2 三个核心痛点</h3>
+<table>
+<thead><tr><th>痛点</th><th>根因</th><th>后果</th></tr></thead>
+<tbody>
+<tr><td><strong>邻接查询慢</strong></td><td>拓扑是树，不是图。反向查询需要构建临时 Map</td><td>O(N) 遍历 + 哈希表开销</td></tr>
+<tr><td><strong>身份基于指针</strong></td><td>TShape 指针相等 = 同一实体。无法序列化</td><td>不支持持久化标识</td></tr>
+<tr><td><strong>PCurve 查找脆弱</strong></td><td>遍历 CurveRepresentation 列表，匹配 Surface + Location</td><td>对 Location 结构敏感</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2>第2章 BRepGraph 实体模型与三级身份</h2>
+
+<h3>2.1 从遍历树到索引图</h3>
+<p>BRepGraph 不替代 TopoDS——它提供一个 <strong>索引图视图</strong>，从 <code>TopoDS_Shape</code> 构建，可以转换回来。每种拓扑元素在对应向量中恰好存在一次。反向索引提供 O(1) 的上溯导航。</p>
+
+<img src="visuals/ch2-entity-model.png" alt="第2章配图：BRepGraph 实体模型与三级身份体系">
+
+<h3>2.2 三级身份体系</h3>
+<table>
+<thead><tr><th>身份</th><th>组成</th><th>特性</th><th>适用场景</th></tr></thead>
+<tbody>
+<tr><td><strong>NodeId</strong></td><td>Kind + Index</td><td>位置相关，O(1) 访问</td><td>内部遍历和快速引用</td></tr>
+<tr><td><strong>UID</strong></td><td>Kind + Counter</td><td>持久标识，不复用</td><td>跨会话追踪、历史记录</td></tr>
+<tr><td><strong>RepId</strong></td><td>Kind + Index</td><td>几何寻址</td><td>曲面、曲线去重共享</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2>第3章 Build 管线与 API 视图</h2>
+
+<img src="visuals/ch3-build-pipeline.png" alt="第3章配图：Build 四阶段管线">
+
+<h3>3.1 四阶段构建管线</h3>
+<pre><code>BRepGraph aGraph;
+aGraph.Build(BRepPrimAPI_MakeBox(10, 20, 30).Shape());
+// 6 面、12 边、8 顶点，全部索引化</code></pre>
+
+<h3>3.2 八种 API 视图</h3>
+<table>
+<thead><tr><th>视图</th><th>用途</th><th>关键方法</th></tr></thead>
+<tbody>
+<tr><td><code>Defs()</code></td><td>读实体定义</td><td><code>NbFaces()</code>, <code>Edge(idx)</code></td></tr>
+<tr><td><code>UIDs()</code></td><td>持久身份</td><td><code>Of(nodeId)</code>, <code>NodeIdFrom(uid)</code></td></tr>
+<tr><td><code>Spatial()</code></td><td>邻接和位置</td><td><code>FacesOfEdge(idx)</code></td></tr>
+<tr><td><code>Shapes()</code></td><td>重建 TopoDS</td><td><code>Node(nodeId)</code></td></tr>
+<tr><td><code>Mut()</code></td><td>可变定义</td><td><code>EdgeDef(idx)</code></td></tr>
+<tr><td><code>Builder()</code></td><td>图构建</td><td><code>AddProduct(root)</code></td></tr>
+<tr><td><code>Attrs()</code></td><td>缓存属性</td><td><code>Get(nodeId, key)</code></td></tr>
+<tr><td><code>Analyze()</code></td><td>分解分析</td><td><code>Decompose()</code></td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2>第4章 RAII 突变与装配原生</h2>
+
+<img src="visuals/ch4-mutation-assembly.png" alt="第4章配图：RAII 突变守卫 + Product/Occurrence 装配模型">
+
+<h3>4.1 作用域突变守卫</h3>
+<pre><code>{
+  BRepGraph_MutRef&lt;BRepGraph_TopoNode::EdgeDef&gt; aMutEdge = aGraph.MutEdge(anEdgeIdx);
+  aMutEdge-&gt;Tolerance = 0.01;
+  aMutEdge-&gt;SameParameter = true;
+}
+// 作用域结束时自动：MutationGen++ → 缓存清除 → IsModified 向上传播 → 通知订阅层</code></pre>
+
+<h3>4.2 内建装配</h3>
+<p><strong>ProductEntity</strong>：可复用的形状定义（替代 XCAF）<br>
+<strong>OccurrenceEntity</strong>：放置实例，携带变换矩阵</p>
+
+<hr>
+
+<h2>第5章 算法套件与采用策略</h2>
+
+<img src="visuals/ch5-algorithms-decision.png" alt="第5章配图：算法套件与采用决策树">
+
+<h3>5.1 性能基准（Apple M4, 10核, 16GB）</h3>
+<table>
+<thead><tr><th>操作</th><th>vs 基线</th></tr></thead>
+<tbody>
+<tr><td>空间邻接查询（10K 面）</td><td><strong>97% 更快</strong></td></tr>
+<tr><td>缝合 500 面（并行）</td><td><strong>58% 更快</strong></td></tr>
+<tr><td>缝合 500 面（顺序）</td><td><strong>44% 更快</strong></td></tr>
+<tr><td>去重 + 压缩（500 副本）</td><td><strong>43% 更快</strong></td></tr>
+</tbody>
+</table>
+
+<h3>5.2 快速上手</h3>
+<pre><code>#include &lt;BRepGraph.hxx&gt;
+#include &lt;BRepGraph_Tool.hxx&gt;
+#include &lt;BRepPrimAPI_MakeBox.hxx&gt;
+
+BRepGraph aGraph;
+aGraph.Build(BRepPrimAPI_MakeBox(10, 20, 30).Shape());
+
+const int aNbFaces = aGraph.Defs().NbFaces();       // 6
+const int aFaceCount = aGraph.Defs().FaceCountOfEdge(0); // 2
+
+const occ::handle&lt;Geom_Surface&gt;&amp; aSurface =
+  BRepGraph_Tool::Face::Surface(aGraph, 0);</code></pre>
+
+<hr>
+
+<h2>延伸阅读</h2>
+<ul>
+<li><a href="https://github.com/Open-Cascade-SAS/OCCT/discussions/1170">BRepGraph Discussion #1170</a> — 官方公告与社区讨论</li>
+<li><a href="https://github.com/Open-Cascade-SAS/OCCT/pull/1166">Draft PR #1166</a> — BRepGraph 源码</li>
+</ul>
+
+</div>
+</body>
+</html>
